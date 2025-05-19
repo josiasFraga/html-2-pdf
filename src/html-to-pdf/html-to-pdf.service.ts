@@ -1,9 +1,8 @@
+// src/html-to-pdf/html-to-pdf.service.ts
 import { Injectable, OnModuleDestroy } from '@nestjs/common';
 import { Buffer } from 'node:buffer';
 import chromium from '@sparticuz/chromium';
-
-// 👉  use os tipos que vêm com puppeteer-core
-import type { Browser } from 'puppeteer-core';
+import type { Browser, LaunchOptions } from 'puppeteer-core'; // tipos mínimos
 
 type Pptr = typeof import('puppeteer-core');
 
@@ -11,45 +10,50 @@ type Pptr = typeof import('puppeteer-core');
 export class HtmlToPdfService implements OnModuleDestroy {
   private browser: Browser | null = null;
 
+  /** Carrega dinamicamente puppeteer-core (Lambda) ou puppeteer completo (desenvolvimento / EC2) */
   private async getPuppeteer(): Promise<Pptr> {
     const isLambda = !!process.env.CHROME_PATH;
+    /* cast para Pptr resolve diferença de tipos */
     return (isLambda
       ? await import('puppeteer-core')
       : await import('puppeteer')) as Pptr;
   }
 
+  /** Singleton de Browser */
   private async getBrowser(): Promise<Browser> {
     if (this.browser) return this.browser;
 
     const puppeteer = await this.getPuppeteer();
     const isLambda = !!process.env.CHROME_PATH;
 
-    const launchOptions = isLambda
+    const launchOptions: LaunchOptions = isLambda
       ? {
           args: chromium.args,
           defaultViewport: chromium.defaultViewport,
-          executablePath: process.env.CHROME_PATH || (await chromium.executablePath()),
+          executablePath:
+            process.env.CHROME_PATH || (await chromium.executablePath()),
           headless: chromium.headless,
         }
       : {
           headless: true,
           args: ['--no-sandbox', '--disable-setuid-sandbox'],
+          /* executablePath opcional em Windows/EC2:
+             - ficaria undefined → puppeteer usa o Chrome que ele mesmo baixou
+             - se você instalou Google Chrome no sistema, pode setar
+               executablePath: 'C:\\Program Files\\Google\\Chrome\\Application\\chrome.exe' */
         };
 
     this.browser = await puppeteer.launch(launchOptions as any);
     return this.browser;
   }
 
-  /* ---------- utilidade para repetir header visual ---------- */
+  /* ---------- duplica <header> entre page-breaks ---------- */
   repeatHeaderAfterPageBreaks(html: string): string {
-    const headerMatch = html.match(/<header[^>]*>[\s\S]*?<\/header>/i);
-    if (!headerMatch) return html;
-
-    const headerHtml = headerMatch[0];
-    const htmlWithoutHeader = html.replace(headerHtml, '');
-    const parts = htmlWithoutHeader.split(/<div class=["']page-break["']><\/div>/i);
-    const processed = parts.map((p) => `${headerHtml}${p}`);
-    return processed.join('<div class="page-break"></div>');
+    const m = html.match(/<header[^>]*>[\s\S]*?<\/header>/i);
+    if (!m) return html;
+    const header = m[0];
+    const parts = html.replace(header, '').split(/<div class=["']page-break["']><\/div>/i);
+    return parts.map(p => header + p).join('<div class="page-break"></div>');
   }
 
   /* ---------- API principal ---------- */
