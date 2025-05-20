@@ -2,43 +2,69 @@ name: Deploy to EC2
 
 on:
   push:
-    branches: [ master ]     # ou o branch que você usa
+    branches: [ master ]      # troque se usar main ou outro branch
 
 jobs:
   deploy:
     runs-on: ubuntu-latest
 
     steps:
-      - uses: actions/checkout@v4
+    # 1 ─ checkout do código
+    - uses: actions/checkout@v4
 
-      - name: Setup Node
-        uses: actions/setup-node@v4
-        with:
-          node-version: 20
+    # 2 ─ Node 20
+    - name: Setup Node
+      uses: actions/setup-node@v4
+      with:
+        node-version: 20
 
-      - run: npm install --omit=dev
-      - run: npm run build
+    # 3 ─ Instalar APENAS dependências de produção
+    - run: npm install
 
-      - run: zip -r function.zip dist node_modules package.json package-lock.json
+    # 4 ─ Build do Nest (gera dist/)
+    - run: npm run build
 
-      - name: Copy to EC2
-        uses: appleboy/scp-action@v0.1.4
-        with:
-          host: ${{ secrets.EC2_HOST }}
-          username: ec2-user
-          key: ${{ secrets.SSH_PRIVATE_KEY }}
-          source: "function.zip"
-          target: "~/html2pdf"
+    # 5 ─ Compactar artefato
+    - run: |
+        zip -r function.zip \
+          dist \
+          node_modules \
+          package.json \
+          package-lock.json
 
-      - name: Deploy on EC2
-        uses: appleboy/ssh-action@v1.0.0
-        with:
-          host: ${{ secrets.EC2_HOST }}
-          username: ec2-user
-          key: ${{ secrets.SSH_PRIVATE_KEY }}
-          script: |
-            cd ~/html2pdf
-            unzip -o function.zip
-            pm2 delete html2pdf || true
-            pm2 start dist/main.js --name html2pdf
-            pm2 save
+    # 6 ─ Copiar para a instância
+    - name: Copy ZIP to EC2
+      uses: appleboy/scp-action@v0.1.4
+      with:
+        host: ${{ secrets.EC2_HOST }}
+        username: ec2-user
+        key: ${{ secrets.SSH_PRIVATE_KEY }}
+        source: "function.zip"
+        target: "~/html2pdf"
+
+    # 7 ─ Descompactar e (re)iniciar via PM2
+    - name: SSH & Deploy
+      uses: appleboy/ssh-action@v1.0.0
+      with:
+        host: ${{ secrets.EC2_HOST }}
+        username: ec2-user
+        key: ${{ secrets.SSH_PRIVATE_KEY }}
+        script: |
+          cd ~/html2pdf
+          unzip -o function.zip
+          # arquivo PM2 com CHROME_PATH
+          cat > ecosystem.config.js <<'EOF'
+          module.exports = {
+            apps: [{
+              name: 'html2pdf',
+              script: 'dist/main.js',
+              env: {
+                NODE_ENV: 'production',
+                CHROME_PATH: '/tmp/chromium'       // caminho do Sparticuz
+              }
+            }]
+          };
+          EOF
+          pm2 delete html2pdf || true
+          pm2 start ecosystem.config.js
+          pm2 save
