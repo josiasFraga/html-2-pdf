@@ -26,7 +26,8 @@ export class HtmlToPdfService implements OnModuleDestroy {
     let launchOptions: LaunchOptions;
 
     if (isArmLinux) {
-      const chromium = (await import('@sparticuz/chromium')).default;
+      const chromiumModule = await import('@sparticuz/chromium');
+      const chromium = chromiumModule.default || chromiumModule;
 
       launchOptions = {
         args: chromium.args,
