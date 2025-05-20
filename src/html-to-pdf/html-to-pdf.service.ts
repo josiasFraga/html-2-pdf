@@ -43,7 +43,7 @@ export class HtmlToPdfService implements OnModuleDestroy {
       displayHeaderFooter: !!headerHtml || !!footerHtml,
       headerTemplate: headerHtml ?? '<div></div>',
       footerTemplate: footerHtml ?? '<div></div>',
-      margin: { top: '40px', bottom: '40px', left: '10px', right: '10px' },
+      margin: { top: '0px', bottom: '0px', left: '10px', right: '10px' },
     });
 
     await page.close();
