@@ -1,7 +1,6 @@
 // src/html-to-pdf/html-to-pdf.service.ts
 import { Injectable, OnModuleDestroy } from '@nestjs/common';
 import { Buffer } from 'node:buffer';
-import chromium from '@sparticuz/chromium';
 import type { Browser, LaunchOptions } from 'puppeteer-core'; // tipos mínimos
 
 type Pptr = typeof import('puppeteer-core');
@@ -27,21 +26,20 @@ export class HtmlToPdfService implements OnModuleDestroy {
     const isLambda = !!process.env.CHROME_PATH;
 
     const launchOptions: LaunchOptions = isLambda
-      ? {
-          args: chromium.args,
-          defaultViewport: chromium.defaultViewport,
-          executablePath:
-            process.env.CHROME_PATH || (await chromium.executablePath()),
-          headless: chromium.headless,
-        }
-      : {
-          headless: true,
-          args: ['--no-sandbox', '--disable-setuid-sandbox'],
-          /* executablePath opcional em Windows/EC2:
-             - ficaria undefined → puppeteer usa o Chrome que ele mesmo baixou
-             - se você instalou Google Chrome no sistema, pode setar
-               executablePath: 'C:\\Program Files\\Google\\Chrome\\Application\\chrome.exe' */
-        };
+  ? (() => {
+      const chromium = require('@sparticuz/chromium'); // ✅ require dinâmico
+      return {
+        args: chromium.args,
+        defaultViewport: chromium.defaultViewport,
+        executablePath:
+          process.env.CHROME_PATH || chromium.executablePath(),
+        headless: chromium.headless,
+      };
+    })()
+  : {
+      headless: true,
+      args: ['--no-sandbox', '--disable-setuid-sandbox'],
+    };
 
     this.browser = await puppeteer.launch(launchOptions as any);
     return this.browser;
