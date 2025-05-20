@@ -1,7 +1,6 @@
-// src/html-to-pdf/html-to-pdf.service.ts
 import { Injectable, OnModuleDestroy } from '@nestjs/common';
 import { Buffer } from 'node:buffer';
-import type { Browser, LaunchOptions } from 'puppeteer-core'; // tipos mínimos
+import type { Browser, LaunchOptions } from 'puppeteer-core';
 
 type Pptr = typeof import('puppeteer-core');
 
@@ -9,43 +8,51 @@ type Pptr = typeof import('puppeteer-core');
 export class HtmlToPdfService implements OnModuleDestroy {
   private browser: Browser | null = null;
 
-  /** Carrega dinamicamente puppeteer-core (Lambda) ou puppeteer completo (desenvolvimento / EC2) */
-  private async getPuppeteer(): Promise<Pptr> {
-    const isLambda = !!process.env.CHROME_PATH;
-    /* cast para Pptr resolve diferença de tipos */
-    return (isLambda
+  private async getPuppeteer(isArmLinux): Promise<Pptr> {
+    
+    return (isArmLinux
       ? await import('puppeteer-core')
       : await import('puppeteer')) as Pptr;
   }
 
-  /** Singleton de Browser */
   private async getBrowser(): Promise<Browser> {
     if (this.browser) return this.browser;
 
-    const puppeteer = await this.getPuppeteer();
-    const isLambda = !!process.env.CHROME_PATH;
+    const isArmLinux = process.platform === 'linux' && process.arch === 'arm64';
+    const isWindows = process.platform === 'win32';
 
-    const launchOptions: LaunchOptions = isLambda
-  ? (() => {
-      const chromium = require('@sparticuz/chromium'); // ✅ require dinâmico
-      return {
+    const puppeteer = await this.getPuppeteer(isArmLinux);
+
+    let launchOptions: LaunchOptions;
+
+    if (isArmLinux) {
+      const chromium = (await import('@sparticuz/chromium')).default;
+
+      launchOptions = {
         args: chromium.args,
         defaultViewport: chromium.defaultViewport,
-        executablePath:
-          process.env.CHROME_PATH || chromium.executablePath(),
+        executablePath: await chromium.executablePath(),
         headless: chromium.headless,
       };
-    })()
-  : {
-      headless: true,
-      args: ['--no-sandbox', '--disable-setuid-sandbox'],
-    };
+    } else if (isWindows) {
+      launchOptions = {
+        headless: true,
+        args: ['--no-sandbox', '--disable-setuid-sandbox'],
+        // Se tiver o Chrome instalado no Windows, pode especificar o caminho:
+        // executablePath: 'C:\\Program Files\\Google\\Chrome\\Application\\chrome.exe',
+      };
+    } else {
+      // fallback geral (ex: Mac ou Linux x86)
+      launchOptions = {
+        headless: true,
+        args: ['--no-sandbox', '--disable-setuid-sandbox'],
+      };
+    }
 
     this.browser = await puppeteer.launch(launchOptions as any);
     return this.browser;
   }
 
-  /* ---------- duplica <header> entre page-breaks ---------- */
   repeatHeaderAfterPageBreaks(html: string): string {
     const m = html.match(/<header[^>]*>[\s\S]*?<\/header>/i);
     if (!m) return html;
@@ -54,7 +61,6 @@ export class HtmlToPdfService implements OnModuleDestroy {
     return parts.map(p => header + p).join('<div class="page-break"></div>');
   }
 
-  /* ---------- API principal ---------- */
   async htmlToPdf(
     html: string,
     headerHtml?: string,
