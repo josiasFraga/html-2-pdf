@@ -1,56 +1,20 @@
 import { Injectable, OnModuleDestroy } from '@nestjs/common';
 import { Buffer } from 'node:buffer';
-import type { Browser, LaunchOptions } from 'puppeteer-core';
-
-type Pptr = typeof import('puppeteer-core');
+import puppeteer, { Browser, LaunchOptions } from 'puppeteer';
 
 @Injectable()
 export class HtmlToPdfService implements OnModuleDestroy {
   private browser: Browser | null = null;
 
-  private async getPuppeteer(isArmLinux): Promise<Pptr> {
-    
-    return (isArmLinux
-      ? await import('puppeteer-core')
-      : await import('puppeteer')) as Pptr;
-  }
-
   private async getBrowser(): Promise<Browser> {
     if (this.browser) return this.browser;
 
-    const isArmLinux = process.platform === 'linux' && process.arch === 'arm64';
-    const isWindows = process.platform === 'win32';
+    const launchOptions: LaunchOptions = {
+      headless: true,
+      args: ['--no-sandbox', '--disable-setuid-sandbox'],
+    };
 
-    const puppeteer = await this.getPuppeteer(isArmLinux);
-
-    let launchOptions: LaunchOptions;
-
-    if (isArmLinux) {
-      const chromiumModule = await import('@sparticuz/chromium');
-      const chromium = chromiumModule.default || chromiumModule;
-
-      launchOptions = {
-        args: chromium.args,
-        defaultViewport: chromium.defaultViewport,
-        executablePath: await chromium.executablePath(),
-        headless: chromium.headless,
-      };
-    } else if (isWindows) {
-      launchOptions = {
-        headless: true,
-        args: ['--no-sandbox', '--disable-setuid-sandbox'],
-        // Se tiver o Chrome instalado no Windows, pode especificar o caminho:
-        // executablePath: 'C:\\Program Files\\Google\\Chrome\\Application\\chrome.exe',
-      };
-    } else {
-      // fallback geral (ex: Mac ou Linux x86)
-      launchOptions = {
-        headless: true,
-        args: ['--no-sandbox', '--disable-setuid-sandbox'],
-      };
-    }
-
-    this.browser = await puppeteer.launch(launchOptions as any);
+    this.browser = await puppeteer.launch(launchOptions);
     return this.browser;
   }
 
