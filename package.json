@@ -27,6 +27,7 @@
     "@vendia/serverless-express": "^4.12.6",
     "class-transformer": "^0.5.1",
     "class-validator": "^0.14.2",
+    "pdf-lib": "^1.17.1",
     "puppeteer": "^24.8.2",
     "puppeteer-core": "^24.8.2",
     "reflect-metadata": "^0.2.2",

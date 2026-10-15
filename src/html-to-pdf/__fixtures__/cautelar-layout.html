@@ -1,0 +1,39 @@
+<html class="cautelar"><head><meta charset="utf-8"><style>
+  @page { margin: 20px; }
+  html { font-size: 16px; line-height: 1.5; }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body { font-family: Arial, sans-serif; margin: 20px; padding: 20px; }
+  html.cautelar h1 { font-family: Arial, sans-serif; color: #333; }
+  p { font-size: 16px; line-height: 1.5; }
+  .row { display: flex; flex-direction: row; }
+  .col-8 { flex: 0 0 66.6667%; }
+  table { width: 100%; border-collapse: collapse; }
+  th, td { padding: 5px 10px; font-size: 0.8em; }
+  .page-break { page-break-before: always; break-before: page; }
+</style></head><body>
+<section id="header">
+  <h1 data-typography>CAUTELAR PREMIUM</h1>
+  <p data-typography>CAUTELAR PREMIUM Nº Laudo {{id}}</p>
+  <p>Data: {{data}} {{hora}}</p>
+</section>
+<section id="infos">
+  <table data-typography>
+    <thead><tr><th>DADOS DA PESQUISA</th><th>DADOS COLETADOS</th></tr></thead>
+    <tbody><tr><td data-typography>TIPO VEÍCULO: {{tipo_veiculo}}</td><td>{{renavam}}</td></tr></tbody>
+  </table>
+</section>
+<section style="margin-top:24px;display:flex;flex-direction:row;gap:16px">
+  <div style="flex:0 0 50%">
+    <div id="placa_mercosul" style="width:100%;height:200px;margin-top:20px;border:4px solid #333;border-radius:10px;background:linear-gradient(#145bc0 30%,#ddd 30%);text-align:center;font-weight:bold;line-height:230px;font-size:3em">{{placa}}</div>
+  </div>
+  <div style="flex:1;font-size:0.8em;line-height:1.5">
+    <p style="background:#000;color:#fff;padding:5px 10px;margin-bottom:4px">IDENTIFICAÇÃO</p>
+    <p style="background:#000;color:#fff;padding:5px 10px">ANÁLISE ESTRUTURAL</p>
+  </div>
+</section>
+<div style="display:flex;flex-wrap:wrap;justify-content:space-between;margin-top:24px">
+  <img style="width:48%;height:300px;object-fit:contain;margin-bottom:10px" src="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='160' height='80'%3E%3Crect width='160' height='80' fill='%23999'/%3E%3C/svg%3E" alt="Veículo">
+  <img style="width:48%;height:300px;object-fit:contain;margin-bottom:10px" src="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='160' height='80'%3E%3Crect width='160' height='80' fill='%23999'/%3E%3C/svg%3E" alt="Veículo">
+</div>
+<div class="page-break"></div>
+</body></html>

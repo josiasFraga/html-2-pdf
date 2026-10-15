@@ -1,6 +1,6 @@
 // src/html-to-pdf/pdf.controller.ts
 import {
-  Controller, Post, Body, Res, HttpStatus,
+  Controller, Post, Body, Res,
 } from '@nestjs/common';
 import { Response } from 'express';
 import { CreatePdfDto } from './dto/create-pdf.dto';
@@ -13,10 +13,22 @@ export class HtmlToPdfController {
 
   @Post()
   async create(
-    @Body() { html, footerHtml, headerHtml }: CreatePdfDto,
+    @Body()
+    {
+      html,
+      footerHtml,
+      headerHtml,
+      headerExcludedPages,
+      footerExcludedPages,
+      pageNumberStartPage,
+    }: CreatePdfDto,
     @Res({ passthrough: true }) res: Response,
   ): Promise<StreamableFile> {
-    const buffer = await this.pdfService.htmlToPdf(html, headerHtml, footerHtml);
+    const buffer = await this.pdfService.htmlToPdf(html, headerHtml, footerHtml, {
+      headerExcludedPages,
+      footerExcludedPages,
+      pageNumberStartPage,
+    });
 
     // Cabeçalhos p/ download; remova se quiser inline
     res.set({

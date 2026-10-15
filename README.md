@@ -58,6 +58,56 @@ $ npm run test:e2e
 $ npm run test:cov
 ```
 
+## HTML to PDF API
+
+### Endpoint
+
+- `POST /html-to-pdf`
+
+### Request body
+
+- `html` (string, obrigatorio)
+- `headerHtml` (string, opcional)
+- `footerHtml` (string, opcional)
+- `headerExcludedPages` (number[], opcional)
+- `footerExcludedPages` (number[], opcional)
+- `pageNumberStartPage` (number, opcional)
+
+### Regras dos novos parametros
+
+- `headerExcludedPages`: oculta o header inteiro nas paginas informadas.
+- `footerExcludedPages`: oculta o footer inteiro nas paginas informadas.
+- `pageNumberStartPage`: controla a partir de qual pagina os placeholders de numeracao no footer aparecem (`pageNumber` e `totalPages`).
+- Se uma pagina estiver em `footerExcludedPages`, o footer nao aparece, mesmo que esteja dentro do inicio da numeracao.
+
+### Posicionamento no modo condicional
+
+- Os dois modos usam o MESMO HTML e o MESMO motor nativo de impressao do Chromium, com as mesmas opcoes de margem e formato. Os parametros novos nao criam containers, colunas, redimensionamentos ou substituicoes de `@page`/`body`.
+- CSS inline e folhas de estilo do HTML continuam sendo interpretados pelo Chromium: fontes relativas, flexbox, imagens, tabelas, placa, espacamentos e margens nao sao recalculados por um segundo motor.
+- `headerHtml` e `footerHtml` continuam sendo templates nativos, no topo e no rodape da pagina, inclusive vazia, respeitando as exclusoes. A area disponivel continua sendo a do modo nativo; reserve margens no HTML para templates altos.
+- As listas e os contadores usam as paginas fisicas do PDF, incluindo as geradas por conteudo que exceda uma folha.
+- `pageNumberStartPage: 2` oculta os contadores na primeira pagina; a segunda exibe `2`, sem reiniciar em `1`.
+- Uma quebra explicita no final do HTML pode gerar uma pagina vazia segundo as regras nativas do Chromium. Ela nao e adicionada ou removida pelo modo condicional.
+- Os templates `headerHtml` e `footerHtml` ficam isolados do CSS do documento pelo proprio Puppeteer.
+- As listas tambem ocultam tags semanticas `<header>` e `<footer>` presentes no HTML, preservando o espaco que ocupam (`visibility:hidden`), sem deslocar o restante do documento. Elementos como `<section id="header">` sao conteudo comum: nao sao tratados como template nem ocultados automaticamente. O mecanismo legado de repeticao de `<header>` nas quebras explicitas permanece igual nos dois modos.
+- Nos dois modos, os templates recebidos usam o mesmo container de largura total da folha, independente das margens do conteudo. Assim, `text-align:center` ou `text-align:right` funciona mesmo quando a raiz do template nao declara `width:100%`. Larguras e estilos definidos dentro do template sao preservados; por exemplo, `width:100px;text-align:center` centraliza dentro dos 100px.
+- O modo original do documento (com ou sem `DOCTYPE`), atributos de `<html>`, seletores e estrutura do conteudo nao sao reconstruidos.
+
+### Como as exclusoes sao aplicadas
+
+1. O Chromium imprime o documento inteiro normalmente.
+2. Quando necessario, reimprime o mesmo documento selecionando as paginas fisicas afetadas com os templates ocultos. Paginas com a mesma regra sao agrupadas; a numeracao usa a posicao original, nao a posicao no grupo.
+3. `pdf-lib` compoe o resultado sem rasterizar ou redimensionar o conteudo. Paginas nao afetadas sao copiadas da impressao original.
+
+O modo condicional pode consumir mais tempo e memoria devido as impressoes adicionais. Para comparacoes deterministicas, use o mesmo HTML/dados e recursos externos estaveis: scripts, animacoes, fontes e imagens remotas variaveis podem mudar entre impressoes. A composicao reescreve a estrutura interna do PDF; equivalencia visual do conteudo nao significa arquivos binariamente identicos. Recursos de nivel de documento, como arvore de acessibilidade e destinos internos, nao tem preservacao garantida na composicao.
+
+Os testes geram PDFs reais e comparam comandos de desenho do corpo (incluindo escala, placa e imagens), tamanhos de pagina, coordenadas/fontes do texto, exclusoes, links externos, contadores e paginas vazias. Tambem verificam que HTML e opcoes da primeira impressao sao identicos nos dois modos.
+
+### Compatibilidade
+
+- Contrato retrocompativel: clientes atuais nao precisam alterar payload, endpoint ou tratamento da resposta. Sem os campos novos, a renderizacao do conteudo e as margens continuam usando o modo nativo.
+- Correcao visual intencional no modo nativo: header/footer sem largura explicita agora respeitam o alinhamento informado dentro de uma area de largura total, em vez de encolherem ate a largura do texto. Isso corrige `text-align:center/right` que antes parecia nao ser aplicado.
+
 ## Deployment
 
 When you're ready to deploy your NestJS application to production, there are some key steps you can take to ensure it runs as efficiently as possible. Check out the [deployment documentation](https://docs.nestjs.com/deployment) for more information.
