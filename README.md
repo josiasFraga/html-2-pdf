@@ -72,6 +72,28 @@ $ npm run test:cov
 - `headerExcludedPages` (number[], opcional)
 - `footerExcludedPages` (number[], opcional)
 - `pageNumberStartPage` (number, opcional)
+- `leftMarginText` (string, opcional): texto vertical na lateral esquerda.
+- `rightMarginText` (string, opcional): texto vertical na lateral direita.
+
+### Textos nas laterais
+
+O front envia somente os textos, por exemplo:
+
+```json
+{
+  "html": "<html><body><p>Conteúdo do laudo</p></body></html>",
+  "leftMarginText": "CHASSI: 9BW12345678901234 | PLACA: ABC1D23",
+  "rightMarginText": "APROVADO COM OBSERVAÇÕES"
+}
+```
+
+- Os campos são independentes: é possível enviar apenas um lado. Campos ausentes, vazios ou contendo apenas espaços não desenham texto. Quebras de linha e espaços consecutivos são normalizados para uma linha. HTML é tratado como texto literal.
+- Os textos são pretos, em Helvetica, centralizados verticalmente em todas as páginas físicas, inclusive páginas vazias e páginas criadas por transbordamento. À esquerda, a leitura é de baixo para cima (+90°); à direita, de cima para baixo (-90°).
+- A fonte padrão é 9 pt. O centro da caixa tipográfica fica a 5 mm da borda física em ambos os lados, evitando texto colado à borda. Textos extensos são reduzidos até 4 pt, com 12 pt de folga mínima nas extremidades superior e inferior. Se ainda não couberem, a API responde HTTP 400 indicando o campo.
+- A fonte padrão suporta acentos portugueses e caracteres WinAnsi. Caracteres não suportados, como emojis, retornam HTTP 400, sem substituição silenciosa. Valores que não sejam strings (inclusive `null`) também retornam HTTP 400.
+- A aplicação ocorre via `pdf-lib` no PDF final, após as exclusões de cabeçalho/rodapé. As regras `headerExcludedPages`, `footerExcludedPages` e `pageNumberStartPage` não ocultam textos laterais. Não são necessárias novas impressões Chromium para os textos.
+- **As margens atuais não mudam:** o serviço mantém 10 px laterais (7,5 pt, aproximadamente 2,65 mm). O afastamento de 5 mm é apenas a posição da sobreposição no PDF, não uma nova margem do conteúdo: o HTML não é deslocado, redimensionado ou repaginado. Os textos ficam além da margem mínima padrão; o modelo precisa deixar espaço lateral livre nessa região. Não há detecção automática de espaço livre: conteúdo ou templates nessa região podem sobrepor os textos. Confira a legibilidade e possíveis sobreposições no laudo real.
+- Sem textos laterais, não há carregamento/gravação adicional do PDF. Com textos, a estrutura interna do arquivo é regravada; isso não implica identidade binária, embora os comandos de desenho originais sejam preservados. O conteúdo não é rasterizado nem reconstruído.
 
 ### Regras dos novos parametros
 

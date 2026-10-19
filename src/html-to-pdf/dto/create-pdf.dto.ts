@@ -11,6 +11,14 @@ export class CreatePdfDto {
   headerHtml?: string;       // opcional
 
   @IsOptional()
+  @IsString()
+  leftMarginText?: string;
+
+  @IsOptional()
+  @IsString()
+  rightMarginText?: string;
+
+  @IsOptional()
   @IsArray()
   @IsInt({ each: true })
   @Min(1, { each: true })

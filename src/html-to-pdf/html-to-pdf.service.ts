@@ -2,6 +2,7 @@ import { Injectable, OnModuleDestroy } from '@nestjs/common';
 import { Buffer } from 'node:buffer';
 import { PDFDocument } from 'pdf-lib';
 import puppeteer, { Browser, LaunchOptions, Page, PDFOptions } from 'puppeteer';
+import { addMarginTexts, normalizeMarginText } from './margin-text';
 
 const PAGE_BREAK_REGEX = /<div class=["']page-break["']><\/div>/i;
 const PAGE_BREAK_HTML = '<div class="page-break"></div>';
@@ -10,6 +11,8 @@ export interface HtmlToPdfOptions {
   headerExcludedPages?: number[];
   footerExcludedPages?: number[];
   pageNumberStartPage?: number;
+  leftMarginText?: string;
+  rightMarginText?: string;
 }
 
 interface PageVariant {
@@ -129,6 +132,8 @@ export class HtmlToPdfService implements OnModuleDestroy {
     footerHtml?: string,
     options: HtmlToPdfOptions = {},
   ): Promise<Buffer> {
+    const leftMarginText = normalizeMarginText(options.leftMarginText, 'leftMarginText');
+    const rightMarginText = normalizeMarginText(options.rightMarginText, 'rightMarginText');
     const browser = await this.getBrowser();
     const page = await browser.newPage();
     try {
@@ -148,9 +153,10 @@ export class HtmlToPdfService implements OnModuleDestroy {
       };
       const original = await page.pdf(printOptions);
       const conditional = options.headerExcludedPages?.length || options.footerExcludedPages?.length || options.pageNumberStartPage;
-      return conditional
+      const result = conditional
         ? await this.composeConditionalPages(page, original, printOptions, options)
         : Buffer.from(original);
+      return await addMarginTexts(result, leftMarginText, rightMarginText);
     } finally {
       await page.close();
     }

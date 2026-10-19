@@ -17,6 +17,16 @@ describe('HtmlToPdfService', () => {
     expect(service).toBeDefined();
   });
 
+  it('rejects invalid margin parameters before launching Chromium', async () => {
+    const getBrowser = jest.spyOn(service as unknown as {
+      getBrowser(): Promise<unknown>;
+    }, 'getBrowser');
+    await expect(service.htmlToPdf('<p>BODY</p>', undefined, undefined, {
+      leftMarginText: 123 as unknown as string,
+    })).rejects.toThrow('leftMarginText deve ser uma string');
+    expect(getBrowser).not.toHaveBeenCalled();
+  });
+
   it('repeats html header after page breaks in legacy mode', () => {
     const html =
       '<header><div>Header</div></header><main>A</main><div class="page-break"></div><main>B</main>';

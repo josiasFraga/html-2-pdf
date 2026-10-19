@@ -21,6 +21,8 @@ export class HtmlToPdfController {
       headerExcludedPages,
       footerExcludedPages,
       pageNumberStartPage,
+      leftMarginText,
+      rightMarginText,
     }: CreatePdfDto,
     @Res({ passthrough: true }) res: Response,
   ): Promise<StreamableFile> {
@@ -28,6 +30,8 @@ export class HtmlToPdfController {
       headerExcludedPages,
       footerExcludedPages,
       pageNumberStartPage,
+      leftMarginText,
+      rightMarginText,
     });
 
     // Cabeçalhos p/ download; remova se quiser inline

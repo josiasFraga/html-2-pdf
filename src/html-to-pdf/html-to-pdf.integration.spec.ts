@@ -1,7 +1,7 @@
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { afterAll, beforeAll, describe, expect, it, jest } from '@jest/globals';
-import { PDFArray, PDFDict, PDFDocument, PDFName, PDFPage, PDFRawStream, decodePDFRawStream } from 'pdf-lib';
+import { PDFArray, PDFDict, PDFDocument, PDFName, PDFPage, PDFRawStream, StandardFonts, decodePDFRawStream } from 'pdf-lib';
 import puppeteer, { Browser, PDFOptions } from 'puppeteer';
 import { HtmlToPdfOptions, HtmlToPdfService } from './html-to-pdf.service';
 
@@ -88,14 +88,17 @@ describe('Native PDF rendering compatibility', () => {
     const print = page.pdf.bind(page);
     const prints: PDFOptions[] = [];
     const markup: string[] = [];
+    const printedBytes: Buffer[] = [];
     jest.spyOn(page, 'pdf').mockImplementation(async (printOptions) => {
       prints.push(printOptions ?? {});
       markup.push(await page.content());
-      return print(printOptions);
+      const bytes = await print(printOptions);
+      printedBytes.push(Buffer.from(bytes));
+      return bytes;
     });
     try {
       const bytes = await service.htmlToPdf(html, templates.header, templates.footer, options);
-      return { bytes, pdf: await PDFDocument.load(bytes), prints, markup };
+      return { bytes, pdf: await PDFDocument.load(bytes), prints, markup, printedBytes };
     } finally {
       newPage.mockRestore();
       if (!page.isClosed()) await page.close();
@@ -106,6 +109,66 @@ describe('Native PDF rendering compatibility', () => {
     const html = readFileSync(join(__dirname, '__fixtures__', 'sample-report.html'), 'utf-8');
     expect(new HtmlToPdfService().repeatHeaderAfterPageBreaks(html)).toMatchSnapshot();
   });
+
+  it('keeps native bytes unchanged for missing or whitespace-only margin texts', async () => {
+    for (const options of [{}, { leftMarginText: ' \n ', rightMarginText: '\t' }]) {
+      const result = await render('<p>BODY</p>', options);
+      expect(result.bytes.equals(result.printedBytes[0])).toBe(true);
+      expect(result.prints).toHaveLength(1);
+    }
+  }, 30000);
+
+  it.each([false, true])('adds both sides after pagination without altering any native drawing, conditional=%s', async (conditional) => {
+    const html = readFileSync(join(__dirname, '__fixtures__', 'cautelar-layout.html'), 'utf-8')
+      .replace('</body>', '<a href="https://example.com/report">LINK</a>' +
+        Array.from({ length: 100 }, (_, i) => `<p>OVERFLOW ${i}</p>`).join('') +
+        '<div class="page-break"></div><div class="page-break"></div></body>');
+    const options: HtmlToPdfOptions = conditional
+      ? { headerExcludedPages: [1], footerExcludedPages: [2], pageNumberStartPage: 3 }
+      : {};
+    const baseline = await render(html, options);
+    const left = 'CHASSI: 9BW12345678901234 | PLACA: ABC1D23';
+    const right = 'APROVADO COM OBSERVAÇÕES';
+    const result = await render(html, { ...options, leftMarginText: left, rightMarginText: right });
+    expect(result.pdf.getPageCount()).toBeGreaterThan(3);
+    expect(result.pdf.getPageCount()).toBe(baseline.pdf.getPageCount());
+    expect(result.prints).toEqual(baseline.prints);
+    expect(result.markup).toEqual(baseline.markup);
+    const font = await result.pdf.embedFont(StandardFonts.Helvetica);
+    const ascent = font.heightAtSize(9, { descender: false });
+    const descent = font.heightAtSize(9) - ascent;
+    result.pdf.getPages().forEach((page, index) => {
+      const original = baseline.pdf.getPage(index);
+      expect(page.getSize()).toEqual(original.getSize());
+      // pdf-lib appends a separate stream; all original drawing operators stay intact.
+      const drawing = operators(page);
+      expect(drawing).toContain(operators(original));
+      for (const text of [left, right]) {
+        const encoded = `<${Buffer.from(text, 'latin1').toString('hex').toUpperCase()}> Tj`;
+        expect(drawing.split(encoded)).toHaveLength(2);
+      }
+      const overlays = Array.from(drawing.matchAll(/BT([\s\S]*?)ET/g))
+        .filter((block) => block[1].includes('/Helvetica-'));
+      expect(overlays).toHaveLength(2);
+      overlays.forEach((block, side) => {
+        const matrix = block[1].match(/([-\d.e]+) ([-\d.e]+) ([-\d.e]+) ([-\d.e]+) ([-\d.e]+) ([-\d.e]+) Tm/);
+        expect(matrix).not.toBeNull();
+        const [a, b, c, d, x, y] = matrix!.slice(1).map(Number);
+        expect(a).toBeCloseTo(0);
+        expect(b).toBeCloseTo(side === 0 ? 1 : -1);
+        expect(c).toBeCloseTo(side === 0 ? -1 : 1);
+        expect(d).toBeCloseTo(0);
+        const baselineOffset = side === 0 ? x : page.getWidth() - x;
+        expect(baselineOffset - (ascent - descent) / 2).toBeCloseTo(5 * 72 / 25.4);
+        expect(baselineOffset - ascent).toBeGreaterThan(10);
+        expect(y).toBeGreaterThan(12);
+        expect(y).toBeLessThan(page.getHeight() - 12);
+        expect(block[1]).toMatch(/ 9 Tf/);
+      });
+      expect(page.node.Annots()?.size() ?? 0).toBe(original.node.Annots()?.size() ?? 0);
+    });
+    expect(baseline.pdf.getPages().some((page) => (page.node.Annots()?.size() ?? 0) > 0)).toBe(true);
+  }, 30000);
 
   it.each(['', '<!doctype html>'])('preserves the actual plate/body drawing with doctype=%s', async (doctype) => {
     const html = doctype + readFileSync(join(__dirname, '__fixtures__', 'cautelar-layout.html'), 'utf-8');
