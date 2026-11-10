@@ -64,9 +64,60 @@ $ npm run test:cov
 
 - `POST /html-to-pdf`
 
+### Limites de tamanho e carga
+
+O servidor e a entrada Lambda compartilham a configuracao HTTP:
+
+| Variavel de ambiente | Padrao | Valores aceitos |
+|---|---|---|
+| `PDF_MAX_REQUEST_BYTES` | `20971520` (20 MiB) | 1024 a 104857600 bytes (100 MiB) |
+| `PDF_MAX_CONCURRENT_REQUESTS` | `2` | inteiros de 1 a 8 |
+
+O teto e do JSON completo em bytes UTF-8 (HTML, fontes, imagens base64,
+cabecalho e rodape), nao apenas da quantidade de cartazes. Substitui o limite
+padrao de 100 KiB do parser Nest/Express. O valor exato do teto e aceito;
+acima dele retorna HTTP 413 antes de abrir uma pagina Chromium. Configuracao
+invalida impede a inicializacao, sem aceitar limites ilimitados. Defina as
+variaveis no ambiente do processo/PM2 e reinicie; nao ha carga automatica de
+arquivos `.env`.
+
+Requisicoes comprimidas sao rejeitadas com 415 para evitar expansao
+descontrolada. JSON invalido retorna 400. Os erros de parsing nao incluem o
+HTML recebido nos logs. O limite de requisicoes simultaneas e aplicado antes
+do parsing; excesso retorna 503 com `Retry-After: 5`, sem fila ilimitada.
+Ha tambem um limite de renderizacoes ativas: desconectar o cliente nao libera
+uma vaga Chromium enquanto a conversao anterior ainda estiver executando.
+O browser e compartilhado e a inicializacao concorrente usa um unico launch.
+O servidor HTTP local limita o recebimento do corpo a 60 segundos e dos
+headers a 30 segundos. Esses prazos nao sao um timeout total de conversao.
+
+O Cartazes continua enviando lotes de ate 100 registros e reunindo os PDFs
+por papel/orientacao. Aumentar a selecao nao exige uma unica requisicao
+gigante. Mesmo um lote pode ultrapassar o teto se repetir muitas imagens:
+nesse caso, reduza-o ou ajuste o limite apos medir memoria. O backend traduz
+413/503 em mensagens claras para o operador.
+
+**Operacao segura:** mantenha este servico em rede privada, acessivel apenas
+pelos backends autorizados, com firewall/proxy e limites equivalentes no
+proxy. Ele recebe HTML confiavel de aplicacoes internas; nao e um sandbox
+para HTML hostil nem uma API publica autenticada. O Chromium existente usa
+`--no-sandbox` e pode carregar recursos de rede referenciados no HTML:
+os limites acima nao substituem isolamento do processo, restricoes de rede
+de saida e controle de acesso. Nenhuma dessas permissoes foi ampliada.
+Na Lambda, limites menores do API Gateway/Lambda prevalecem; o teto local
+nao remove limites do provedor. Concorrencia e por processo/instancia:
+dimensione o total considerando workers e replicas.
+
 ### Request body
 
 - `html` (string, obrigatorio)
+- `marginMm` (numero, opcional, de 0 a 50): margem uniforme da pagina em mm.
+  `0` remove as margens adicionadas pelo servico. Sem esse parametro,
+  mantem o padrao legado: 10 px nas laterais e zero em cima/embaixo.
+  Nao remove padding, margens ou bordas definidos no HTML/modelo.
+- `format` (`"A3"`, `"A4"` ou `"custom"`, opcional): padrao `"A4"`.
+- `orientation` (`"portrait"` ou `"landscape"`, opcional): vertical ou horizontal; padrao `"portrait"`.
+- `width` e `height` (strings, obrigatorias quando `format` for `"custom"`): medidas positivas com unidade `mm`, `cm`, `in` ou `px`.
 - `headerHtml` (string, opcional)
 - `footerHtml` (string, opcional)
 - `headerExcludedPages` (number[], opcional)
@@ -74,6 +125,36 @@ $ npm run test:cov
 - `pageNumberStartPage` (number, opcional)
 - `leftMarginText` (string, opcional): texto vertical na lateral esquerda.
 - `rightMarginText` (string, opcional): texto vertical na lateral direita.
+
+### Tamanho e orientacao da folha
+
+A3 horizontal:
+
+```json
+{
+  "html": "<html><body><p>Relatorio</p></body></html>",
+  "format": "A3",
+  "orientation": "landscape"
+}
+```
+
+Tamanho personalizado de 180 x 250 mm, vertical:
+
+```json
+{
+  "html": "<html><body><p>Relatorio</p></body></html>",
+  "format": "custom",
+  "width": "180mm",
+  "height": "250mm",
+  "orientation": "portrait"
+}
+```
+
+- Sem esses campos, o comportamento permanece A4 vertical.
+- Para tamanho personalizado, envie as duas dimensoes na base vertical (largura menor que altura); `landscape` gera a folha na horizontal. Ex.: 180 x 250 mm passa a 250 x 180 mm.
+- Dimensoes so podem ser enviadas com `format: "custom"`. Formatos/orientacoes desconhecidos, valores `null`, dimensoes ausentes, sem unidade ou nao positivas retornam HTTP 400, tanto no servidor quanto na Lambda.
+- A configuracao e usada em todas as impressoes, inclusive nas paginas com exclusoes de cabecalho/rodape. Os textos laterais usam as dimensoes finais da folha. As margens existentes nao mudam.
+- A API define o tamanho fisico da folha; CSS `@page` do HTML continua sendo interpretado pelo Chromium, sem ativar `preferCSSPageSize`.
 
 ### Textos nas laterais
 
@@ -92,7 +173,7 @@ O front envia somente os textos, por exemplo:
 - A fonte padrão é 9 pt. O centro da caixa tipográfica fica a 5 mm da borda física em ambos os lados, evitando texto colado à borda. Textos extensos são reduzidos até 4 pt, com 12 pt de folga mínima nas extremidades superior e inferior. Se ainda não couberem, a API responde HTTP 400 indicando o campo.
 - A fonte padrão suporta acentos portugueses e caracteres WinAnsi. Caracteres não suportados, como emojis, retornam HTTP 400, sem substituição silenciosa. Valores que não sejam strings (inclusive `null`) também retornam HTTP 400.
 - A aplicação ocorre via `pdf-lib` no PDF final, após as exclusões de cabeçalho/rodapé. As regras `headerExcludedPages`, `footerExcludedPages` e `pageNumberStartPage` não ocultam textos laterais. Não são necessárias novas impressões Chromium para os textos.
-- **As margens atuais não mudam:** o serviço mantém 10 px laterais (7,5 pt, aproximadamente 2,65 mm). O afastamento de 5 mm é apenas a posição da sobreposição no PDF, não uma nova margem do conteúdo: o HTML não é deslocado, redimensionado ou repaginado. Os textos ficam além da margem mínima padrão; o modelo precisa deixar espaço lateral livre nessa região. Não há detecção automática de espaço livre: conteúdo ou templates nessa região podem sobrepor os textos. Confira a legibilidade e possíveis sobreposições no laudo real.
+- **As margens padrao nao mudam:** sem `marginMm`, o servico mantem 10 px laterais (7,5 pt, aproximadamente 2,65 mm). O Cartazes envia `marginMm: 0` para usar a folha inteira. O afastamento de 5 mm dos textos laterais e apenas a posicao da sobreposicao no PDF, nao uma nova margem do conteudo. Nao ha deteccao automatica de espaco livre: confira possiveis sobreposicoes no laudo real.
 - Sem textos laterais, não há carregamento/gravação adicional do PDF. Com textos, a estrutura interna do arquivo é regravada; isso não implica identidade binária, embora os comandos de desenho originais sejam preservados. O conteúdo não é rasterizado nem reconstruído.
 
 ### Regras dos novos parametros

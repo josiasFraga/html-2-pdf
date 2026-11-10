@@ -38,6 +38,11 @@ describe('HtmlToPdfController', () => {
       rightMarginText: 'APROVADO',
       headerExcludedPages: [1],
       pageNumberStartPage: 2,
+      format: 'custom',
+      orientation: 'landscape',
+      width: '180mm',
+      height: '250mm',
+      marginMm: 0,
     }, { set } as unknown as Response);
     expect(service.htmlToPdf).toHaveBeenCalledWith('<p>Laudo</p>', undefined, undefined, {
       headerExcludedPages: [1],
@@ -45,6 +50,11 @@ describe('HtmlToPdfController', () => {
       pageNumberStartPage: 2,
       leftMarginText: 'CHASSI: 123 | PLACA: ABC1D23',
       rightMarginText: 'APROVADO',
+      format: 'custom',
+      orientation: 'landscape',
+      width: '180mm',
+      height: '250mm',
+      marginMm: 0,
     });
     expect(result.getStream()).toBeDefined();
     expect(set).toHaveBeenCalledWith({

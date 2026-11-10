@@ -110,6 +110,58 @@ describe('Native PDF rendering compatibility', () => {
     expect(new HtmlToPdfService().repeatHeaderAfterPageBreaks(html)).toMatchSnapshot();
   });
 
+  it('prints full A4 sheets without service margins or extra overflow pages when requested', async () => {
+    const html = '<html><head><style>*{box-sizing:border-box}html,body{margin:0;padding:0}.sheet{width:210mm;height:297mm;background:#f00;overflow:hidden}.sheet:not(:last-child){break-after:page}</style></head><body><div class="sheet">FIRST</div><div class="sheet">SECOND</div></body></html>';
+    const result = await render(html, { marginMm: 0 }, { header: '', footer: '' });
+    expect(result.pdf.getPageCount()).toBe(2);
+    expect(result.prints[0].margin).toEqual({ top: '0mm', bottom: '0mm', left: '0mm', right: '0mm' });
+    const native = await browser.newPage();
+    try {
+      await native.setContent(html);
+      const expected = await PDFDocument.load(await native.pdf({
+        format: 'A4', printBackground: true,
+        margin: { top: 0, bottom: 0, left: 0, right: 0 },
+      }));
+      for (let index = 0; index < 2; index++) {
+        expect(bodyDrawing(result.pdf.getPage(index))).toBe(bodyDrawing(expected.getPage(index)));
+        expect(Math.abs(result.pdf.getPage(index).getWidth() - 210 * 72 / 25.4)).toBeLessThan(1);
+        expect(Math.abs(result.pdf.getPage(index).getHeight() - 297 * 72 / 25.4)).toBeLessThan(1);
+      }
+    } finally { await native.close(); }
+  });
+
+  it.each([
+    { options: {}, width: 210, height: 297 },
+    { options: { format: 'A4', orientation: 'landscape' }, width: 297, height: 210 },
+    { options: { format: 'A3' }, width: 297, height: 420 },
+    { options: { format: 'A3', orientation: 'landscape' }, width: 420, height: 297 },
+    { options: { format: 'custom', width: '180mm', height: '250mm' }, width: 180, height: 250 },
+    { options: { format: 'custom', width: '180mm', height: '250mm', orientation: 'landscape' }, width: 250, height: 180 },
+  ] satisfies { options: HtmlToPdfOptions; width: number; height: number }[])(
+    'renders physical page dimensions $width x $height mm with conditional pages and margin texts',
+    async ({ options, width, height }) => {
+      const html = '<style>.page-break{break-before:page}</style><p>BODY ONE</p><div class="page-break"></div><p>BODY TWO</p>';
+      const result = await render(html, {
+        ...options,
+        headerExcludedPages: [2],
+        leftMarginText: 'LEFT',
+        rightMarginText: 'RIGHT',
+      });
+      expect(result.pdf.getPageCount()).toBe(2);
+      expect(result.prints).toHaveLength(2);
+      for (const page of result.pdf.getPages()) {
+        expect(Math.abs(page.getWidth() - width * 72 / 25.4)).toBeLessThan(1);
+        expect(Math.abs(page.getHeight() - height * 72 / 25.4)).toBeLessThan(1);
+      }
+      expect(result.prints[1]).toEqual({
+        ...result.prints[0],
+        pageRanges: '2',
+        headerTemplate: '<div></div>',
+      });
+    },
+    30000,
+  );
+
   it('keeps native bytes unchanged for missing or whitespace-only margin texts', async () => {
     for (const options of [{}, { leftMarginText: ' \n ', rightMarginText: '\t' }]) {
       const result = await render('<p>BODY</p>', options);

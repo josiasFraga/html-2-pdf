@@ -1,14 +1,36 @@
-import { IsArray, IsInt, IsOptional, IsString, Min } from 'class-validator';
+import { IsArray, IsIn, IsInt, IsOptional, IsString, IsNumber, Max, Min, ValidateIf } from 'class-validator';
+import type { PageOptions } from '../page-options';
 
-export class CreatePdfDto {
+export class CreatePdfDto implements PageOptions {
   @IsString()
   html: string;              // html bruto ou <html> completo
+  @ValidateIf((_, value: unknown) => value !== undefined)
+  @IsNumber()
+  @Min(0)
+  @Max(50)
+  marginMm?: number;
   @IsOptional()
   @IsString()
   footerHtml?: string;       // opcional
   @IsOptional()
   @IsString()
   headerHtml?: string;       // opcional
+
+  @ValidateIf((_, value: unknown) => value !== undefined)
+  @IsIn(['A3', 'A4', 'custom'])
+  format?: PageOptions['format'];
+
+  @ValidateIf((_, value: unknown) => value !== undefined)
+  @IsIn(['portrait', 'landscape'])
+  orientation?: PageOptions['orientation'];
+
+  @ValidateIf((object: CreatePdfDto, value: unknown) => object.format === 'custom' || value !== undefined)
+  @IsString()
+  width?: string;
+
+  @ValidateIf((object: CreatePdfDto, value: unknown) => object.format === 'custom' || value !== undefined)
+  @IsString()
+  height?: string;
 
   @IsOptional()
   @IsString()

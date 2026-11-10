@@ -1,13 +1,15 @@
-import { Injectable, OnModuleDestroy } from '@nestjs/common';
+import { Injectable, Logger, OnModuleDestroy, ServiceUnavailableException } from '@nestjs/common';
 import { Buffer } from 'node:buffer';
 import { PDFDocument } from 'pdf-lib';
 import puppeteer, { Browser, LaunchOptions, Page, PDFOptions } from 'puppeteer';
 import { addMarginTexts, normalizeMarginText } from './margin-text';
+import { PageOptions, resolvePageOptions, resolveMargins } from './page-options';
+import { pdfConcurrency } from '../http-config';
 
 const PAGE_BREAK_REGEX = /<div class=["']page-break["']><\/div>/i;
 const PAGE_BREAK_HTML = '<div class="page-break"></div>';
 
-export interface HtmlToPdfOptions {
+export interface HtmlToPdfOptions extends PageOptions {
   headerExcludedPages?: number[];
   footerExcludedPages?: number[];
   pageNumberStartPage?: number;
@@ -25,6 +27,10 @@ interface PageVariant {
 @Injectable()
 export class HtmlToPdfService implements OnModuleDestroy {
   private browser: Browser | null = null;
+  private browserLaunch: Promise<Browser> | null = null;
+  private activeRenders = 0;
+  private readonly maxRenders = pdfConcurrency();
+  private readonly logger = new Logger(HtmlToPdfService.name);
 
   private async getBrowser(): Promise<Browser> {
     if (this.browser) return this.browser;
@@ -32,8 +38,13 @@ export class HtmlToPdfService implements OnModuleDestroy {
       headless: true,
       args: ['--no-sandbox', '--disable-setuid-sandbox'],
     };
-    this.browser = await puppeteer.launch(launchOptions);
-    return this.browser;
+    this.browserLaunch ??= puppeteer.launch(launchOptions);
+    try {
+      this.browser = await this.browserLaunch;
+      return this.browser;
+    } finally {
+      this.browserLaunch = null;
+    }
   }
 
   repeatHeaderAfterPageBreaks(html: string): string {
@@ -132,6 +143,26 @@ export class HtmlToPdfService implements OnModuleDestroy {
     footerHtml?: string,
     options: HtmlToPdfOptions = {},
   ): Promise<Buffer> {
+    if (this.activeRenders >= this.maxRenders) {
+      this.logger.warn('PDF render rejected: concurrent render limit reached.');
+      throw new ServiceUnavailableException('Servico PDF ocupado. Tente novamente em alguns segundos.');
+    }
+    this.activeRenders++;
+    try {
+      return await this.renderPdf(html, headerHtml, footerHtml, options);
+    } finally {
+      this.activeRenders--;
+    }
+  }
+
+  private async renderPdf(
+    html: string,
+    headerHtml?: string,
+    footerHtml?: string,
+    options: HtmlToPdfOptions = {},
+  ): Promise<Buffer> {
+    const pageOptions = resolvePageOptions(options);
+    const margin = resolveMargins(options.marginMm);
     const leftMarginText = normalizeMarginText(options.leftMarginText, 'leftMarginText');
     const rightMarginText = normalizeMarginText(options.rightMarginText, 'rightMarginText');
     const browser = await this.getBrowser();
@@ -144,12 +175,12 @@ export class HtmlToPdfService implements OnModuleDestroy {
         await Promise.all(Array.from(document.images, (image) => image.decode().catch(() => undefined)));
       });
       const printOptions: PDFOptions = {
-        format: 'A4',
+        ...pageOptions,
         printBackground: true,
         displayHeaderFooter: !!headerHtml || !!footerHtml,
         headerTemplate: this.prepareTemplate(headerHtml),
         footerTemplate: this.prepareTemplate(footerHtml),
-        margin: { top: '0px', bottom: '0px', left: '10px', right: '10px' },
+        margin,
       };
       const original = await page.pdf(printOptions);
       const conditional = options.headerExcludedPages?.length || options.footerExcludedPages?.length || options.pageNumberStartPage;
